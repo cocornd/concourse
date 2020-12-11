@@ -29,9 +29,6 @@ const taskExitStatusPropertyName = "concourse:exit-status"
 //go:generate counterfeiter . Client
 
 type Client interface {
-	FindContainer(logger lager.Logger, teamID int, handle string) (Container, bool, error)
-	FindVolume(logger lager.Logger, teamID int, handle string) (Volume, bool, error)
-	CreateVolume(logger lager.Logger, vSpec VolumeSpec, wSpec WorkerSpec, volumeType db.VolumeType) (Volume, error)
 	StreamFileFromArtifact(
 		ctx context.Context,
 		logger lager.Logger,
@@ -95,7 +92,6 @@ type Client interface {
 }
 
 func NewClient(pool Pool,
-	provider WorkerProvider,
 	compression compression.Compression,
 	workerPollingInterval time.Duration,
 	workerStatusPublishInterval time.Duration,
@@ -104,7 +100,6 @@ func NewClient(pool Pool,
 ) *client {
 	return &client{
 		pool:                        pool,
-		provider:                    provider,
 		compression:                 compression,
 		workerPollingInterval:       workerPollingInterval,
 		workerStatusPublishInterval: workerStatusPublishInterval,
@@ -115,7 +110,6 @@ func NewClient(pool Pool,
 
 type client struct {
 	pool                        Pool
-	provider                    WorkerProvider
 	compression                 compression.Compression
 	workerPollingInterval       time.Duration
 	workerStatusPublishInterval time.Duration
@@ -146,49 +140,6 @@ type GetResult struct {
 type processStatus struct {
 	processStatus int
 	processErr    error
-}
-
-func (client *client) FindContainer(logger lager.Logger, teamID int, handle string) (Container, bool, error) {
-	worker, found, err := client.provider.FindWorkerForContainer(
-		logger.Session("find-worker"),
-		teamID,
-		handle,
-	)
-	if err != nil {
-		return nil, false, err
-	}
-
-	if !found {
-		return nil, false, nil
-	}
-
-	return worker.FindContainerByHandle(logger, teamID, handle)
-}
-
-func (client *client) FindVolume(logger lager.Logger, teamID int, handle string) (Volume, bool, error) {
-	worker, found, err := client.provider.FindWorkerForVolume(
-		logger.Session("find-worker"),
-		teamID,
-		handle,
-	)
-	if err != nil {
-		return nil, false, err
-	}
-
-	if !found {
-		return nil, false, nil
-	}
-
-	return worker.LookupVolume(logger, handle)
-}
-
-func (client *client) CreateVolume(logger lager.Logger, volumeSpec VolumeSpec, workerSpec WorkerSpec, volumeType db.VolumeType) (Volume, error) {
-	worker, err := client.pool.FindOrChooseWorker(logger, workerSpec)
-	if err != nil {
-		return nil, err
-	}
-
-	return worker.CreateVolume(logger, volumeSpec, workerSpec.TeamID, volumeType)
 }
 
 func (client *client) RunCheckStep(
@@ -549,13 +500,14 @@ func (client *client) RunPutStep(
 	}, nil
 }
 
+// TODO(worker-client-refactor): move this to worker.Pool
 func (client *client) StreamFileFromArtifact(
 	ctx context.Context,
 	logger lager.Logger,
 	artifact runtime.Artifact,
 	filePath string,
 ) (io.ReadCloser, error) {
-	artifactVolume, found, err := client.FindVolume(logger, 0, artifact.ID())
+	artifactVolume, found, err := client.pool.FindVolume(logger, 0, artifact.ID())
 	if err != nil {
 		return nil, err
 	}
@@ -692,7 +644,7 @@ func (client *client) wireInputsAndCaches(logger lager.Logger, spec *ContainerSp
 			source := NewCacheArtifactSource(*cache)
 			inputs = append(inputs, inputSource{source, path})
 		} else {
-			artifactVolume, found, err := client.FindVolume(logger, spec.TeamID, artifact.ID())
+			artifactVolume, found, err := client.pool.FindVolume(logger, spec.TeamID, artifact.ID())
 			if err != nil {
 				return err
 			}
@@ -712,7 +664,7 @@ func (client *client) wireInputsAndCaches(logger lager.Logger, spec *ContainerSp
 func (client *client) wireImageVolume(logger lager.Logger, spec *ImageSpec) error {
 	imageArtifact := spec.ImageArtifact
 
-	artifactVolume, found, err := client.FindVolume(logger, 0, imageArtifact.ID())
+	artifactVolume, found, err := client.pool.FindVolume(logger, 0, imageArtifact.ID())
 	if err != nil {
 		return err
 	}
