@@ -296,8 +296,7 @@ func (step *CheckStep) runCheck(
 	}
 
 	return step.workerClient.RunCheckStep(
-		ctx,
-		logger,
+		lagerctx.NewContext(ctx, logger),
 		step.containerOwner(resourceConfig),
 		containerSpec,
 		workerSpec,

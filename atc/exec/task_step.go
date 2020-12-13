@@ -245,8 +245,7 @@ func (step *TaskStep) run(ctx context.Context, state RunState, delegate TaskDele
 	owner := db.NewBuildStepContainerOwner(step.metadata.BuildID, step.planID, step.metadata.TeamID)
 
 	result, err := step.workerClient.RunTaskStep(
-		ctx,
-		logger,
+		lagerctx.NewContext(ctx, logger),
 		owner,
 		containerSpec,
 		step.workerSpec(config),

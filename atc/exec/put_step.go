@@ -208,8 +208,7 @@ func (step *PutStep) run(ctx context.Context, state RunState, delegate PutDelega
 	resourceToPut := step.resourceFactory.NewResource(source, params, nil)
 
 	result, err := step.workerClient.RunPutStep(
-		ctx,
-		logger,
+		lagerctx.NewContext(ctx, logger),
 		owner,
 		containerSpec,
 		workerSpec,

@@ -163,7 +163,7 @@ var _ = Describe("TaskStep", func() {
 	JustBeforeEach(func() {
 		if shouldRunTaskStep {
 			Expect(fakeClient.RunTaskStepCallCount()).To(Equal(1), "task step should have run")
-			runCtx, _, owner, containerSpec, workerSpec, strategy, metadata, processSpec, startEventDelegate, lockFactory, volumeFinder = fakeClient.RunTaskStepArgsForCall(0)
+			runCtx, owner, containerSpec, workerSpec, strategy, metadata, processSpec, startEventDelegate, lockFactory, volumeFinder = fakeClient.RunTaskStepArgsForCall(0)
 		}
 	})
 
@@ -291,7 +291,7 @@ var _ = Describe("TaskStep", func() {
 			})
 
 			It("propagates span context to the worker client", func() {
-				Expect(runCtx).To(Equal(spanCtx))
+				Expect(runCtx).To(Equal(rewrapLogger(spanCtx)))
 			})
 
 			It("populates the TRACEPARENT env var", func() {

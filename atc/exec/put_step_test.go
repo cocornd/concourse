@@ -236,7 +236,7 @@ var _ = Describe("PutStep", func() {
 
 	JustBeforeEach(func() {
 		Expect(fakeClient.RunPutStepCallCount()).To(Equal(1), "put step should have run")
-		runCtx, _, owner, containerSpec, workerSpec, strategy, metadata, processSpec, startEventDelegate, runResource, volumeFinder = fakeClient.RunPutStepArgsForCall(0)
+		runCtx, owner, containerSpec, workerSpec, strategy, metadata, processSpec, startEventDelegate, runResource, volumeFinder = fakeClient.RunPutStepArgsForCall(0)
 	})
 
 	Context("inputs", func() {
@@ -323,7 +323,7 @@ var _ = Describe("PutStep", func() {
 	})
 
 	It("calls workerClient -> RunPutStep with the appropriate arguments", func() {
-		Expect(runCtx).To(Equal(spanCtx))
+		Expect(runCtx).To(Equal(rewrapLogger(spanCtx)))
 		Expect(owner).To(Equal(db.NewBuildStepContainerOwner(42, atc.PlanID(planID), 123)))
 		Expect(containerSpec.ImageSpec).To(Equal(worker.ImageSpec{
 			ResourceType: "some-resource-type",
@@ -494,7 +494,7 @@ var _ = Describe("PutStep", func() {
 		})
 
 		It("propagates span context to the worker client", func() {
-			Expect(runCtx).To(Equal(spanCtx))
+			Expect(runCtx).To(Equal(rewrapLogger(spanCtx)))
 		})
 
 		It("populates the TRACEPARENT env var", func() {
