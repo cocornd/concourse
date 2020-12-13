@@ -12,7 +12,6 @@ import (
 	"code.cloudfoundry.org/garden/gardenfakes"
 	"code.cloudfoundry.org/lager"
 	"github.com/concourse/concourse/atc"
-	"github.com/concourse/concourse/atc/compression/compressionfakes"
 	"github.com/concourse/concourse/atc/db/dbfakes"
 	"github.com/concourse/concourse/atc/db/lock/lockfakes"
 	"github.com/concourse/concourse/atc/resource/resourcefakes"
@@ -30,22 +29,18 @@ import (
 
 var _ = Describe("Client", func() {
 	var (
-		fakePool         *workerfakes.FakePool
-		client           worker.Client
-		fakeLock         *lockfakes.FakeLock
-		fakeLockFactory  *lockfakes.FakeLockFactory
-		fakeCompression  *compressionfakes.FakeCompression
-		fakeVolumeFinder *workerfakes.FakeVolumeFinder
+		fakePool        *workerfakes.FakePool
+		client          worker.Client
+		fakeLock        *lockfakes.FakeLock
+		fakeLockFactory *lockfakes.FakeLockFactory
 	)
 
 	BeforeEach(func() {
 		fakePool = new(workerfakes.FakePool)
-		fakeCompression = new(compressionfakes.FakeCompression)
-		fakeVolumeFinder = new(workerfakes.FakeVolumeFinder)
 		workerPolling := 1 * time.Second
 		workerStatus := 2 * time.Second
 
-		client = worker.NewClient(fakePool, fakeCompression, workerPolling, workerStatus, false, 15*time.Minute)
+		client = worker.NewClient(fakePool, workerPolling, workerStatus)
 	})
 
 	Describe("RunCheckStep", func() {
@@ -99,7 +94,6 @@ var _ = Describe("Client", func() {
 				fakeEventDelegate,
 				fakeResource,
 				1*time.Nanosecond,
-				fakeVolumeFinder,
 			)
 		})
 
@@ -123,28 +117,6 @@ var _ = Describe("Client", func() {
 				fakeWorker = new(workerfakes.FakeWorker)
 				fakeWorker.NameReturns("some-worker")
 				fakePool.FindOrChooseWorkerForContainerReturns(fakeWorker, nil)
-			})
-
-			Describe("with an image artifact", func() {
-				var fakeArtifact *runtimefakes.FakeArtifact
-				var fakeVolume *workerfakes.FakeVolume
-
-				BeforeEach(func() {
-					fakeArtifact = new(runtimefakes.FakeArtifact)
-
-					containerSpec.ImageSpec = worker.ImageSpec{
-						ImageArtifact: fakeArtifact,
-					}
-
-					fakeVolume = new(workerfakes.FakeVolume)
-					fakeVolumeFinder.FindVolumeReturns(fakeVolume, true, nil)
-				})
-
-				It("locates the volume and assigns it as an ImageArtifactSource", func() {
-					_, _, _, _, containerSpec := fakeWorker.FindOrCreateContainerArgsForCall(0)
-					imageSpec := containerSpec.ImageSpec
-					Expect(imageSpec.ImageArtifactSource).To(Equal(worker.NewStreamableArtifactSource(fakeArtifact, fakeVolume, fakeCompression, false, 15*time.Minute)))
-				})
 			})
 
 			Context("failing to find or create container in the worker", func() {
@@ -305,7 +277,6 @@ var _ = Describe("Client", func() {
 				fakeEventDelegate,
 				fakeUsedResourceCache,
 				fakeResource,
-				fakeVolumeFinder,
 			)
 		})
 
@@ -343,29 +314,6 @@ var _ = Describe("Client", func() {
 				Expect(actualResourceCache).To(Equal(fakeUsedResourceCache))
 				// Computed SHA
 				Expect(actualLockName).To(Equal("18c3de3f8ea112ba52e01f279b6cc62335b4bec2f359b9be7636a5ad7bf98f8c"))
-			})
-
-			Describe("with an image artifact", func() {
-				var fakeArtifact *runtimefakes.FakeArtifact
-				var fakeVolume *workerfakes.FakeVolume
-
-				BeforeEach(func() {
-					fakeArtifact = new(runtimefakes.FakeArtifact)
-
-					containerSpec.ImageSpec = worker.ImageSpec{
-						ImageArtifact: fakeArtifact,
-					}
-
-					fakeVolume = new(workerfakes.FakeVolume)
-					fakeVolumeFinder.FindVolumeReturns(fakeVolume, true, nil)
-				})
-
-				It("locates the volume and assigns it as an ImageArtifactSource", func() {
-					Expect(fakeChosenWorker.FetchCallCount()).To(Equal(1))
-					_, _, _, _, actualContainerSpec, _, _, _, _, _ := fakeChosenWorker.FetchArgsForCall(0)
-					imageSpec := actualContainerSpec.ImageSpec
-					Expect(imageSpec.ImageArtifactSource).To(Equal(worker.NewStreamableArtifactSource(fakeArtifact, fakeVolume, fakeCompression, false, 15*time.Minute)))
-				})
 			})
 		})
 
@@ -455,11 +403,10 @@ var _ = Describe("Client", func() {
 					CPU:    &cpu,
 					Memory: &memory,
 				},
-				Dir:            "some-artifact-root",
-				Env:            []string{"SECURE=secret-task-param"},
-				ArtifactByPath: map[string]runtime.Artifact{},
-				Inputs:         inputSources,
-				Outputs:        worker.OutputPaths{},
+				Dir:     "some-artifact-root",
+				Env:     []string{"SECURE=secret-task-param"},
+				Inputs:  inputSources,
+				Outputs: worker.OutputPaths{},
 			}
 			fakeStrategy = new(workerfakes.FakeContainerPlacementStrategy)
 			fakeMetadata = db.ContainerMetadata{
@@ -513,7 +460,6 @@ var _ = Describe("Client", func() {
 				fakeTaskProcessSpec,
 				fakeEventDelegate,
 				fakeLockFactory,
-				fakeVolumeFinder,
 			)
 			status = taskResult.ExitStatus
 			volumeMounts = taskResult.VolumeMounts
@@ -612,28 +558,6 @@ var _ = Describe("Client", func() {
 				Type:             db.ContainerTypeTask,
 				StepName:         "some-step",
 			}))
-		})
-
-		Describe("with an image artifact", func() {
-			var fakeArtifact *runtimefakes.FakeArtifact
-			var fakeVolume *workerfakes.FakeVolume
-
-			BeforeEach(func() {
-				fakeArtifact = new(runtimefakes.FakeArtifact)
-
-				fakeContainerSpec.ImageSpec = worker.ImageSpec{
-					ImageArtifact: fakeArtifact,
-				}
-
-				fakeVolume = new(workerfakes.FakeVolume)
-				fakeVolumeFinder.FindVolumeReturns(fakeVolume, true, nil)
-			})
-
-			It("locates the volume and assigns it as an ImageArtifactSource", func() {
-				_, _, _, _, containerSpec := fakeWorker.FindOrCreateContainerArgsForCall(0)
-				imageSpec := containerSpec.ImageSpec
-				Expect(imageSpec.ImageArtifactSource).To(Equal(worker.NewStreamableArtifactSource(fakeArtifact, fakeVolume, fakeCompression, false, 15*time.Minute)))
-			})
 		})
 
 		Context("found a container that has already exited", func() {
@@ -1260,7 +1184,6 @@ var _ = Describe("Client", func() {
 				fakeProcessSpec,
 				fakeEventDelegate,
 				fakeResource,
-				fakeVolumeFinder,
 			)
 			versionResult = result.VersionResult
 			status = result.ExitStatus
@@ -1290,28 +1213,6 @@ var _ = Describe("Client", func() {
 				Expect(actualContainerSpec).To(Equal(containerSpec))
 				Expect(actualOwner).To(Equal(owner))
 				Expect(actualMetadata).To(Equal(metadata))
-			})
-
-			Describe("with an image artifact", func() {
-				var fakeArtifact *runtimefakes.FakeArtifact
-				var fakeVolume *workerfakes.FakeVolume
-
-				BeforeEach(func() {
-					fakeArtifact = new(runtimefakes.FakeArtifact)
-
-					containerSpec.ImageSpec = worker.ImageSpec{
-						ImageArtifact: fakeArtifact,
-					}
-
-					fakeVolume = new(workerfakes.FakeVolume)
-					fakeVolumeFinder.FindVolumeReturns(fakeVolume, true, nil)
-				})
-
-				It("locates the volume and assigns it as an ImageArtifactSource", func() {
-					_, _, _, _, containerSpec := fakeChosenWorker.FindOrCreateContainerArgsForCall(0)
-					imageSpec := containerSpec.ImageSpec
-					Expect(imageSpec.ImageArtifactSource).To(Equal(worker.NewStreamableArtifactSource(fakeArtifact, fakeVolume, fakeCompression, false, 15*time.Minute)))
-				})
 			})
 		})
 

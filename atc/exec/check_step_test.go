@@ -16,7 +16,6 @@ import (
 	"github.com/concourse/concourse/atc/resource"
 	"github.com/concourse/concourse/atc/resource/resourcefakes"
 	"github.com/concourse/concourse/atc/runtime"
-	"github.com/concourse/concourse/atc/runtime/runtimefakes"
 	"github.com/concourse/concourse/atc/worker"
 	"github.com/concourse/concourse/atc/worker/workerfakes"
 	"github.com/concourse/concourse/tracing"
@@ -414,7 +413,7 @@ var _ = Describe("CheckStep", func() {
 						checkPlan.Type = "some-custom-type"
 
 						fakeImageSpec = worker.ImageSpec{
-							ImageArtifact: new(runtimefakes.FakeArtifact),
+							ImageArtifactSource: new(workerfakes.FakeStreamableArtifactSource),
 						}
 
 						fakeDelegate.FetchImageReturns(fakeImageSpec, nil)

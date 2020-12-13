@@ -14,7 +14,6 @@ import (
 	"code.cloudfoundry.org/lager"
 	"code.cloudfoundry.org/lager/lagerctx"
 	"github.com/concourse/concourse/atc"
-	"github.com/concourse/concourse/atc/compression"
 	"github.com/concourse/concourse/atc/db"
 	"github.com/concourse/concourse/atc/db/lock"
 	"github.com/concourse/concourse/atc/metric"
@@ -40,7 +39,6 @@ type Client interface {
 		runtime.StartingEventDelegate,
 		resource.Resource,
 		time.Duration,
-		VolumeFinder,
 	) (CheckResult, error)
 
 	RunTaskStep(
@@ -53,7 +51,6 @@ type Client interface {
 		runtime.ProcessSpec,
 		runtime.StartingEventDelegate,
 		lock.LockFactory,
-		VolumeFinder,
 	) (TaskResult, error)
 
 	RunPutStep(
@@ -66,7 +63,6 @@ type Client interface {
 		runtime.ProcessSpec,
 		runtime.StartingEventDelegate,
 		resource.Resource,
-		VolumeFinder,
 	) (PutResult, error)
 
 	RunGetStep(
@@ -80,34 +76,25 @@ type Client interface {
 		runtime.StartingEventDelegate,
 		db.UsedResourceCache,
 		resource.Resource,
-		VolumeFinder,
 	) (GetResult, error)
 }
 
-func NewClient(pool Pool,
-	compression compression.Compression,
+func NewClient(
+	pool Pool,
 	workerPollingInterval time.Duration,
 	workerStatusPublishInterval time.Duration,
-	enabledP2pStreaming bool,
-	p2pStreamingTimeout time.Duration,
 ) *client {
 	return &client{
 		pool:                        pool,
-		compression:                 compression,
 		workerPollingInterval:       workerPollingInterval,
 		workerStatusPublishInterval: workerStatusPublishInterval,
-		enabledP2pStreaming:         enabledP2pStreaming,
-		p2pStreamingTimeout:         p2pStreamingTimeout,
 	}
 }
 
 type client struct {
 	pool                        Pool
-	compression                 compression.Compression
 	workerPollingInterval       time.Duration
 	workerStatusPublishInterval time.Duration
-	enabledP2pStreaming         bool
-	p2pStreamingTimeout         time.Duration
 }
 
 type TaskResult struct {
@@ -146,15 +133,8 @@ func (client *client) RunCheckStep(
 	eventDelegate runtime.StartingEventDelegate,
 	checkable resource.Resource,
 	timeout time.Duration,
-	volumeFinder VolumeFinder,
 ) (CheckResult, error) {
 	logger := lagerctx.FromContext(ctx)
-	if containerSpec.ImageSpec.ImageArtifact != nil {
-		err := client.wireImageVolume(logger, &containerSpec.ImageSpec, volumeFinder)
-		if err != nil {
-			return CheckResult{}, err
-		}
-	}
 
 	chosenWorker, err := client.pool.FindOrChooseWorkerForContainer(
 		ctx,
@@ -208,20 +188,8 @@ func (client *client) RunTaskStep(
 	processSpec runtime.ProcessSpec,
 	eventDelegate runtime.StartingEventDelegate,
 	lockFactory lock.LockFactory,
-	volumeFinder VolumeFinder,
 ) (TaskResult, error) {
 	logger := lagerctx.FromContext(ctx)
-	err := client.wireInputsAndCaches(logger, &containerSpec, volumeFinder)
-	if err != nil {
-		return TaskResult{}, err
-	}
-
-	if containerSpec.ImageSpec.ImageArtifact != nil {
-		err = client.wireImageVolume(logger, &containerSpec.ImageSpec, volumeFinder)
-		if err != nil {
-			return TaskResult{}, err
-		}
-	}
 
 	chosenWorker, err := client.chooseTaskWorker(
 		ctx,
@@ -362,15 +330,8 @@ func (client *client) RunGetStep(
 	eventDelegate runtime.StartingEventDelegate,
 	resourceCache db.UsedResourceCache,
 	resource resource.Resource,
-	volumeFinder VolumeFinder,
 ) (GetResult, error) {
 	logger := lagerctx.FromContext(ctx)
-	if containerSpec.ImageSpec.ImageArtifact != nil {
-		err := client.wireImageVolume(logger, &containerSpec.ImageSpec, volumeFinder)
-		if err != nil {
-			return GetResult{}, err
-		}
-	}
 
 	chosenWorker, err := client.pool.FindOrChooseWorkerForContainer(
 		ctx,
@@ -421,21 +382,8 @@ func (client *client) RunPutStep(
 	spec runtime.ProcessSpec,
 	eventDelegate runtime.StartingEventDelegate,
 	resource resource.Resource,
-	volumeFinder VolumeFinder,
 ) (PutResult, error) {
 	logger := lagerctx.FromContext(ctx)
-	if containerSpec.ImageSpec.ImageArtifact != nil {
-		err := client.wireImageVolume(logger, &containerSpec.ImageSpec, volumeFinder)
-		if err != nil {
-			return PutResult{}, err
-		}
-	}
-
-	vr := runtime.VersionResult{}
-	err := client.wireInputsAndCaches(logger, &containerSpec, volumeFinder)
-	if err != nil {
-		return PutResult{}, err
-	}
 
 	chosenWorker, err := client.pool.FindOrChooseWorkerForContainer(
 		ctx,
@@ -480,7 +428,7 @@ func (client *client) RunPutStep(
 
 	eventDelegate.Starting(logger)
 
-	vr, err = resource.Put(ctx, spec, container)
+	vr, err := resource.Put(ctx, spec, container)
 	if err != nil {
 		if failErr, ok := err.(runtime.ErrResourceScriptFailed); ok {
 			return PutResult{
@@ -604,51 +552,6 @@ func (client *client) chooseTaskWorker(
 			outputWriter,
 			started)
 	}
-}
-
-// TODO (runtime) don't modify spec inside here, Specs don't change after you write them
-func (client *client) wireInputsAndCaches(logger lager.Logger, spec *ContainerSpec, volumeFinder VolumeFinder) error {
-	var inputs []InputSource
-
-	for path, artifact := range spec.ArtifactByPath {
-
-		if cache, ok := artifact.(*runtime.CacheArtifact); ok {
-			// task caches may not have a volume, it will be discovered on
-			// the worker later. We do not stream task caches
-			source := NewCacheArtifactSource(*cache)
-			inputs = append(inputs, inputSource{source, path})
-		} else {
-			artifactVolume, found, err := volumeFinder.FindVolume(logger, spec.TeamID, artifact.ID())
-			if err != nil {
-				return err
-			}
-			if !found {
-				return fmt.Errorf("volume not found for artifact id %v type %T", artifact.ID(), artifact)
-			}
-
-			source := NewStreamableArtifactSource(artifact, artifactVolume, client.compression, client.enabledP2pStreaming, client.p2pStreamingTimeout)
-			inputs = append(inputs, inputSource{source, path})
-		}
-	}
-
-	spec.Inputs = inputs
-	return nil
-}
-
-func (client *client) wireImageVolume(logger lager.Logger, spec *ImageSpec, volumeFinder VolumeFinder) error {
-	imageArtifact := spec.ImageArtifact
-
-	artifactVolume, found, err := volumeFinder.FindVolume(logger, 0, imageArtifact.ID())
-	if err != nil {
-		return err
-	}
-	if !found {
-		return fmt.Errorf("volume not found for artifact id %v type %T", imageArtifact.ID(), imageArtifact)
-	}
-
-	spec.ImageArtifactSource = NewStreamableArtifactSource(imageArtifact, artifactVolume, client.compression, client.enabledP2pStreaming, client.p2pStreamingTimeout)
-
-	return nil
 }
 
 func decreaseActiveTasks(logger lager.Logger, w Worker) {

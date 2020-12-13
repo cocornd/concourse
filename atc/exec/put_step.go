@@ -53,6 +53,7 @@ type PutStep struct {
 	strategy              worker.ContainerPlacementStrategy
 	workerClient          worker.Client
 	workerPool            worker.Pool
+	artifactWirer         worker.ArtifactWirer
 	delegateFactory       PutDelegateFactory
 	succeeded             bool
 }
@@ -67,6 +68,7 @@ func NewPutStep(
 	strategy worker.ContainerPlacementStrategy,
 	workerClient worker.Client,
 	workerPool worker.Pool,
+	artifactWirer worker.ArtifactWirer,
 	delegateFactory PutDelegateFactory,
 ) Step {
 	return &PutStep{
@@ -78,6 +80,7 @@ func NewPutStep(
 		resourceConfigFactory: resourceConfigFactory,
 		workerClient:          workerClient,
 		workerPool:            workerPool,
+		artifactWirer:         artifactWirer,
 		strategy:              strategy,
 		delegateFactory:       delegateFactory,
 	}
@@ -143,7 +146,12 @@ func (step *PutStep) run(ctx context.Context, state RunState, delegate PutDelega
 		putInputs = NewSpecificInputs(step.plan.Inputs.Specified)
 	}
 
-	containerInputs, err := putInputs.FindAll(state.ArtifactRepository())
+	inputsMap, err := putInputs.FindAll(state.ArtifactRepository())
+	if err != nil {
+		return false, err
+	}
+
+	containerInputs, err := step.artifactWirer.WireInputsAndCaches(logger, step.metadata.TeamID, inputsMap)
 	if err != nil {
 		return false, err
 	}
@@ -188,7 +196,7 @@ func (step *PutStep) run(ctx context.Context, state RunState, delegate PutDelega
 
 		Env: step.metadata.Env(),
 
-		ArtifactByPath: containerInputs,
+		Inputs: containerInputs,
 	}
 	tracing.Inject(ctx, &containerSpec)
 

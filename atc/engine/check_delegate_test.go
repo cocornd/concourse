@@ -19,6 +19,7 @@ import (
 	"github.com/concourse/concourse/atc/engine/enginefakes"
 	"github.com/concourse/concourse/atc/exec"
 	"github.com/concourse/concourse/atc/policy/policyfakes"
+	"github.com/concourse/concourse/atc/worker/workerfakes"
 	"github.com/concourse/concourse/vars"
 )
 
@@ -28,6 +29,7 @@ var _ = Describe("CheckDelegate", func() {
 		fakeClock         *fakeclock.FakeClock
 		fakeRateLimiter   *enginefakes.FakeRateLimiter
 		fakePolicyChecker *policyfakes.FakeChecker
+		fakeArtifactWirer *workerfakes.FakeArtifactWirer
 
 		state exec.RunState
 
@@ -44,6 +46,7 @@ var _ = Describe("CheckDelegate", func() {
 		fakeBuild = new(dbfakes.FakeBuild)
 		fakeClock = fakeclock.NewFakeClock(now)
 		fakeRateLimiter = new(enginefakes.FakeRateLimiter)
+		fakeArtifactWirer = new(workerfakes.FakeArtifactWirer)
 		credVars := vars.StaticVariables{
 			"source-param": "super-secret-source",
 			"git-key":      "{\n123\n456\n789\n}\n",
@@ -57,7 +60,7 @@ var _ = Describe("CheckDelegate", func() {
 
 		fakePolicyChecker = new(policyfakes.FakeChecker)
 
-		delegate = engine.NewCheckDelegate(fakeBuild, plan, state, fakeClock, fakeRateLimiter, fakePolicyChecker)
+		delegate = engine.NewCheckDelegate(fakeBuild, plan, state, fakeClock, fakeRateLimiter, fakePolicyChecker, fakeArtifactWirer)
 
 		fakeResourceConfig = new(dbfakes.FakeResourceConfig)
 		fakeResourceConfigScope = new(dbfakes.FakeResourceConfigScope)

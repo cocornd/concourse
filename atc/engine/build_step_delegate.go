@@ -10,6 +10,7 @@ import (
 
 	"code.cloudfoundry.org/clock"
 	"code.cloudfoundry.org/lager"
+	"code.cloudfoundry.org/lager/lagerctx"
 	"github.com/concourse/concourse/atc"
 	"github.com/concourse/concourse/atc/db"
 	"github.com/concourse/concourse/atc/event"
@@ -29,6 +30,7 @@ type buildStepDelegate struct {
 	stderr        io.Writer
 	stdout        io.Writer
 	policyChecker policy.Checker
+	artifactWirer worker.ArtifactWirer
 }
 
 func NewBuildStepDelegate(
@@ -37,6 +39,7 @@ func NewBuildStepDelegate(
 	state exec.RunState,
 	clock clock.Clock,
 	policyChecker policy.Checker,
+	artifactWirer worker.ArtifactWirer,
 ) *buildStepDelegate {
 	return &buildStepDelegate{
 		build:         build,
@@ -46,6 +49,7 @@ func NewBuildStepDelegate(
 		stdout:        nil,
 		stderr:        nil,
 		policyChecker: policyChecker,
+		artifactWirer: artifactWirer,
 	}
 }
 
@@ -323,9 +327,14 @@ func (delegate *buildStepDelegate) FetchImage(
 		return worker.ImageSpec{}, fmt.Errorf("fetched artifact not found")
 	}
 
+	source, err := delegate.artifactWirer.WireImage(lagerctx.FromContext(ctx), art)
+	if err != nil {
+		return worker.ImageSpec{}, fmt.Errorf("wire image: %w", err)
+	}
+
 	return worker.ImageSpec{
-		ImageArtifact: art,
-		Privileged:    privileged,
+		ImageArtifactSource: source,
+		Privileged:          privileged,
 	}, nil
 }
 

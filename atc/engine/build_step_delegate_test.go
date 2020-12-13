@@ -24,6 +24,7 @@ import (
 	"github.com/concourse/concourse/atc/policy/policyfakes"
 	"github.com/concourse/concourse/atc/runtime/runtimefakes"
 	"github.com/concourse/concourse/atc/worker"
+	"github.com/concourse/concourse/atc/worker/workerfakes"
 	"github.com/concourse/concourse/vars"
 )
 
@@ -35,6 +36,7 @@ var _ = Describe("BuildStepDelegate", func() {
 		planID            atc.PlanID
 		runState          *execfakes.FakeRunState
 		fakePolicyChecker *policyfakes.FakeChecker
+		fakeArtifactWirer *workerfakes.FakeArtifactWirer
 
 		credVars vars.StaticVariables
 
@@ -62,7 +64,9 @@ var _ = Describe("BuildStepDelegate", func() {
 
 		fakePolicyChecker = new(policyfakes.FakeChecker)
 
-		delegate = engine.NewBuildStepDelegate(fakeBuild, planID, runState, fakeClock, fakePolicyChecker)
+		fakeArtifactWirer = new(workerfakes.FakeArtifactWirer)
+
+		delegate = engine.NewBuildStepDelegate(fakeBuild, planID, runState, fakeClock, fakePolicyChecker, fakeArtifactWirer)
 	})
 
 	Describe("Initializing", func() {
@@ -92,6 +96,7 @@ var _ = Describe("BuildStepDelegate", func() {
 	Describe("FetchImage", func() {
 		var expectedCheckPlan, expectedGetPlan atc.Plan
 		var fakeArtifact *runtimefakes.FakeArtifact
+		var fakeSource *workerfakes.FakeStreamableArtifactSource
 		var fakeResourceCache *dbfakes.FakeUsedResourceCache
 
 		var childState *execfakes.FakeRunState
@@ -198,6 +203,9 @@ var _ = Describe("BuildStepDelegate", func() {
 			privileged = false
 
 			childState.RunReturns(true, nil)
+
+			fakeSource = new(workerfakes.FakeStreamableArtifactSource)
+			fakeArtifactWirer.WireImageReturns(fakeSource, nil)
 		})
 
 		JustBeforeEach(func() {
@@ -210,8 +218,8 @@ var _ = Describe("BuildStepDelegate", func() {
 
 		It("returns an image spec containing the artifact", func() {
 			Expect(imageSpec).To(Equal(worker.ImageSpec{
-				ImageArtifact: fakeArtifact,
-				Privileged:    false,
+				ImageArtifactSource: fakeSource,
+				Privileged:          false,
 			}))
 		})
 
@@ -230,6 +238,12 @@ var _ = Describe("BuildStepDelegate", func() {
 			Expect(fakeBuild.SaveImageResourceVersionArgsForCall(0)).To(Equal(fakeResourceCache))
 		})
 
+		It("converts the image artifact into a source", func() {
+			Expect(fakeArtifactWirer.WireImageCallCount()).To(Equal(1))
+			_, artifact := fakeArtifactWirer.WireImageArgsForCall(0)
+			Expect(artifact).To(Equal(fakeArtifact))
+		})
+
 		Context("when privileged", func() {
 			BeforeEach(func() {
 				privileged = true
@@ -237,8 +251,8 @@ var _ = Describe("BuildStepDelegate", func() {
 
 			It("returns a privileged image spec", func() {
 				Expect(imageSpec).To(Equal(worker.ImageSpec{
-					ImageArtifact: fakeArtifact,
-					Privileged:    true,
+					ImageArtifactSource: fakeSource,
+					Privileged:          true,
 				}))
 			})
 		})
@@ -434,7 +448,8 @@ var _ = Describe("BuildStepDelegate", func() {
 				_, plan = childState.RunArgsForCall(1)
 				Expect(plan.Get.Name).To(Equal("some-name"))
 
-				Expect(imageSpec.ImageArtifact).To(Equal(namedArtifact))
+				_, artifact := fakeArtifactWirer.WireImageArgsForCall(0)
+				Expect(artifact).To(Equal(namedArtifact))
 			})
 		})
 
@@ -625,7 +640,7 @@ var _ = Describe("BuildStepDelegate", func() {
 		BeforeEach(func() {
 			credVars := vars.StaticVariables{}
 			runState = exec.NewRunState(noopStepper, credVars, false)
-			delegate = engine.NewBuildStepDelegate(fakeBuild, "some-plan-id", runState, fakeClock, fakePolicyChecker)
+			delegate = engine.NewBuildStepDelegate(fakeBuild, "some-plan-id", runState, fakeClock, fakePolicyChecker, fakeArtifactWirer)
 		})
 
 		Context("Stdout", func() {
@@ -725,7 +740,7 @@ var _ = Describe("BuildStepDelegate", func() {
 
 		BeforeEach(func() {
 			runState = exec.NewRunState(noopStepper, credVars, true)
-			delegate = engine.NewBuildStepDelegate(fakeBuild, "some-plan-id", runState, fakeClock, fakePolicyChecker)
+			delegate = engine.NewBuildStepDelegate(fakeBuild, "some-plan-id", runState, fakeClock, fakePolicyChecker, fakeArtifactWirer)
 
 			runState.Get(vars.Reference{Path: "source-param"})
 			runState.Get(vars.Reference{Path: "git-key"})
