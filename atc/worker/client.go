@@ -40,6 +40,7 @@ type Client interface {
 		runtime.StartingEventDelegate,
 		resource.Resource,
 		time.Duration,
+		VolumeFinder,
 	) (CheckResult, error)
 
 	RunTaskStep(
@@ -53,6 +54,7 @@ type Client interface {
 		runtime.ProcessSpec,
 		runtime.StartingEventDelegate,
 		lock.LockFactory,
+		VolumeFinder,
 	) (TaskResult, error)
 
 	RunPutStep(
@@ -66,6 +68,7 @@ type Client interface {
 		runtime.ProcessSpec,
 		runtime.StartingEventDelegate,
 		resource.Resource,
+		VolumeFinder,
 	) (PutResult, error)
 
 	RunGetStep(
@@ -80,6 +83,7 @@ type Client interface {
 		runtime.StartingEventDelegate,
 		db.UsedResourceCache,
 		resource.Resource,
+		VolumeFinder,
 	) (GetResult, error)
 }
 
@@ -146,9 +150,10 @@ func (client *client) RunCheckStep(
 	eventDelegate runtime.StartingEventDelegate,
 	checkable resource.Resource,
 	timeout time.Duration,
+	volumeFinder VolumeFinder,
 ) (CheckResult, error) {
 	if containerSpec.ImageSpec.ImageArtifact != nil {
-		err := client.wireImageVolume(logger, &containerSpec.ImageSpec)
+		err := client.wireImageVolume(logger, &containerSpec.ImageSpec, volumeFinder)
 		if err != nil {
 			return CheckResult{}, err
 		}
@@ -207,14 +212,15 @@ func (client *client) RunTaskStep(
 	processSpec runtime.ProcessSpec,
 	eventDelegate runtime.StartingEventDelegate,
 	lockFactory lock.LockFactory,
+	volumeFinder VolumeFinder,
 ) (TaskResult, error) {
-	err := client.wireInputsAndCaches(logger, &containerSpec)
+	err := client.wireInputsAndCaches(logger, &containerSpec, volumeFinder)
 	if err != nil {
 		return TaskResult{}, err
 	}
 
 	if containerSpec.ImageSpec.ImageArtifact != nil {
-		err = client.wireImageVolume(logger, &containerSpec.ImageSpec)
+		err = client.wireImageVolume(logger, &containerSpec.ImageSpec, volumeFinder)
 		if err != nil {
 			return TaskResult{}, err
 		}
@@ -360,9 +366,10 @@ func (client *client) RunGetStep(
 	eventDelegate runtime.StartingEventDelegate,
 	resourceCache db.UsedResourceCache,
 	resource resource.Resource,
+	volumeFinder VolumeFinder,
 ) (GetResult, error) {
 	if containerSpec.ImageSpec.ImageArtifact != nil {
-		err := client.wireImageVolume(logger, &containerSpec.ImageSpec)
+		err := client.wireImageVolume(logger, &containerSpec.ImageSpec, volumeFinder)
 		if err != nil {
 			return GetResult{}, err
 		}
@@ -418,16 +425,17 @@ func (client *client) RunPutStep(
 	spec runtime.ProcessSpec,
 	eventDelegate runtime.StartingEventDelegate,
 	resource resource.Resource,
+	volumeFinder VolumeFinder,
 ) (PutResult, error) {
 	if containerSpec.ImageSpec.ImageArtifact != nil {
-		err := client.wireImageVolume(logger, &containerSpec.ImageSpec)
+		err := client.wireImageVolume(logger, &containerSpec.ImageSpec, volumeFinder)
 		if err != nil {
 			return PutResult{}, err
 		}
 	}
 
 	vr := runtime.VersionResult{}
-	err := client.wireInputsAndCaches(logger, &containerSpec)
+	err := client.wireInputsAndCaches(logger, &containerSpec, volumeFinder)
 	if err != nil {
 		return PutResult{}, err
 	}
@@ -602,7 +610,7 @@ func (client *client) chooseTaskWorker(
 }
 
 // TODO (runtime) don't modify spec inside here, Specs don't change after you write them
-func (client *client) wireInputsAndCaches(logger lager.Logger, spec *ContainerSpec) error {
+func (client *client) wireInputsAndCaches(logger lager.Logger, spec *ContainerSpec, volumeFinder VolumeFinder) error {
 	var inputs []InputSource
 
 	for path, artifact := range spec.ArtifactByPath {
@@ -613,7 +621,7 @@ func (client *client) wireInputsAndCaches(logger lager.Logger, spec *ContainerSp
 			source := NewCacheArtifactSource(*cache)
 			inputs = append(inputs, inputSource{source, path})
 		} else {
-			artifactVolume, found, err := client.pool.FindVolume(logger, spec.TeamID, artifact.ID())
+			artifactVolume, found, err := volumeFinder.FindVolume(logger, spec.TeamID, artifact.ID())
 			if err != nil {
 				return err
 			}
@@ -630,10 +638,10 @@ func (client *client) wireInputsAndCaches(logger lager.Logger, spec *ContainerSp
 	return nil
 }
 
-func (client *client) wireImageVolume(logger lager.Logger, spec *ImageSpec) error {
+func (client *client) wireImageVolume(logger lager.Logger, spec *ImageSpec, volumeFinder VolumeFinder) error {
 	imageArtifact := spec.ImageArtifact
 
-	artifactVolume, found, err := client.pool.FindVolume(logger, 0, imageArtifact.ID())
+	artifactVolume, found, err := volumeFinder.FindVolume(logger, 0, imageArtifact.ID())
 	if err != nil {
 		return err
 	}

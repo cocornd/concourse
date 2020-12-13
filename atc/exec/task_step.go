@@ -85,6 +85,7 @@ type TaskStep struct {
 	containerMetadata db.ContainerMetadata
 	strategy          worker.ContainerPlacementStrategy
 	workerClient      worker.Client
+	workerPool        worker.Pool
 	artifactStreamer  worker.ArtifactStreamer
 	delegateFactory   TaskDelegateFactory
 	lockFactory       lock.LockFactory
@@ -98,6 +99,7 @@ func NewTaskStep(
 	containerMetadata db.ContainerMetadata,
 	strategy worker.ContainerPlacementStrategy,
 	workerClient worker.Client,
+	workerPool worker.Pool,
 	artifactStreamer worker.ArtifactStreamer,
 	delegateFactory TaskDelegateFactory,
 	lockFactory lock.LockFactory,
@@ -110,6 +112,7 @@ func NewTaskStep(
 		containerMetadata: containerMetadata,
 		strategy:          strategy,
 		workerClient:      workerClient,
+		workerPool:        workerPool,
 		artifactStreamer:  artifactStreamer,
 		delegateFactory:   delegateFactory,
 		lockFactory:       lockFactory,
@@ -252,6 +255,7 @@ func (step *TaskStep) run(ctx context.Context, state RunState, delegate TaskDele
 		processSpec,
 		delegate,
 		step.lockFactory,
+		step.workerPool,
 	)
 
 	if err != nil {

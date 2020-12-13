@@ -265,10 +265,11 @@ var _ = Describe("CheckStep", func() {
 				var startEventDelegate runtime.StartingEventDelegate
 				var resource resource.Resource
 				var timeout time.Duration
+				var volumeFinder worker.VolumeFinder
 
 				JustBeforeEach(func() {
 					Expect(fakeClient.RunCheckStepCallCount()).To(Equal(1), "check step should have run")
-					runCtx, _, owner, containerSpec, workerSpec, strategy, metadata, processSpec, startEventDelegate, resource, timeout = fakeClient.RunCheckStepArgsForCall(0)
+					runCtx, _, owner, containerSpec, workerSpec, strategy, metadata, processSpec, startEventDelegate, resource, timeout, volumeFinder = fakeClient.RunCheckStepArgsForCall(0)
 				})
 
 				It("uses ResourceConfigCheckSessionOwner", func() {
@@ -307,6 +308,10 @@ var _ = Describe("CheckStep", func() {
 
 				It("passes the delegate as the start event delegate", func() {
 					Expect(startEventDelegate).To(Equal(fakeDelegate))
+				})
+
+				It("passes the pool as the volume finder", func() {
+					Expect(volumeFinder).To(Equal(fakePool))
 				})
 
 				Context("uses containerspec", func() {

@@ -52,6 +52,7 @@ type PutStep struct {
 	resourceConfigFactory db.ResourceConfigFactory
 	strategy              worker.ContainerPlacementStrategy
 	workerClient          worker.Client
+	workerPool            worker.Pool
 	delegateFactory       PutDelegateFactory
 	succeeded             bool
 }
@@ -65,6 +66,7 @@ func NewPutStep(
 	resourceConfigFactory db.ResourceConfigFactory,
 	strategy worker.ContainerPlacementStrategy,
 	workerClient worker.Client,
+	workerPool worker.Pool,
 	delegateFactory PutDelegateFactory,
 ) Step {
 	return &PutStep{
@@ -75,6 +77,7 @@ func NewPutStep(
 		resourceFactory:       resourceFactory,
 		resourceConfigFactory: resourceConfigFactory,
 		workerClient:          workerClient,
+		workerPool:            workerPool,
 		strategy:              strategy,
 		delegateFactory:       delegateFactory,
 	}
@@ -215,6 +218,7 @@ func (step *PutStep) run(ctx context.Context, state RunState, delegate PutDelega
 		processSpec,
 		delegate,
 		resourceToPut,
+		step.workerPool,
 	)
 	if err != nil {
 		logger.Error("failed-to-put-resource", err)
