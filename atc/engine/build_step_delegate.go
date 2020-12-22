@@ -31,6 +31,7 @@ type buildStepDelegate struct {
 	stdout        io.Writer
 	policyChecker policy.Checker
 	artifactWirer worker.ArtifactWirer
+	pool          worker.Pool
 }
 
 func NewBuildStepDelegate(
@@ -40,6 +41,7 @@ func NewBuildStepDelegate(
 	clock clock.Clock,
 	policyChecker policy.Checker,
 	artifactWirer worker.ArtifactWirer,
+	pool worker.Pool,
 ) *buildStepDelegate {
 	return &buildStepDelegate{
 		build:         build,
@@ -50,6 +52,7 @@ func NewBuildStepDelegate(
 		stderr:        nil,
 		policyChecker: policyChecker,
 		artifactWirer: artifactWirer,
+		pool:          pool,
 	}
 }
 
@@ -182,6 +185,38 @@ func (delegate *buildStepDelegate) Finished(logger lager.Logger, succeeded bool)
 	}
 
 	logger.Info("finished")
+}
+
+func (delegate *buildStepDelegate) SelectWorker(
+	ctx context.Context,
+	owner db.ContainerOwner,
+	containerSpec ContainerSpec,
+	workerSpec WorkerSpec,
+	strategy ContainerPlacementStrategy,
+) (worker.Client, error) {
+	logger := lagerctx.FromContext(ctx)
+	chosenWorker, err := delegate.pool.FindOrChooseWorker(
+		ctx,
+		owner,
+		containerSpec,
+		workerSpec,
+		strategy,
+	)
+	if err != nil {
+		return false, err
+	}
+	err := delegate.build.SaveEvent(event.SelectedWorker{
+		Time: time.Now().Unix(),
+		Origin: event.Origin{
+			ID: event.OriginID(delegate.planID),
+		},
+		WorkerName: chosenWorker.Name(),
+	})
+	if err != nil {
+		logger.Error("failed-to-save-selected-worker-event", err)
+		return
+	}
+	return nil
 }
 
 func (delegate *buildStepDelegate) SelectedWorker(logger lager.Logger, workerName string) {

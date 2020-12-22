@@ -28,6 +28,8 @@ const taskExitStatusPropertyName = "concourse:exit-status"
 //go:generate counterfeiter . Client
 
 type Client interface {
+	Name() string
+
 	RunCheckStep(
 		context.Context,
 		db.ContainerOwner,
@@ -81,11 +83,13 @@ type Client interface {
 
 func NewClient(
 	pool Pool,
+	worker Worker,
 	workerPollingInterval time.Duration,
 	workerStatusPublishInterval time.Duration,
 ) *client {
 	return &client{
 		pool:                        pool,
+		worker:                      worker,
 		workerPollingInterval:       workerPollingInterval,
 		workerStatusPublishInterval: workerStatusPublishInterval,
 	}
@@ -93,6 +97,7 @@ func NewClient(
 
 type client struct {
 	pool                        Pool
+	worker                      Worker
 	workerPollingInterval       time.Duration
 	workerStatusPublishInterval time.Duration
 }
@@ -120,6 +125,10 @@ type GetResult struct {
 type processStatus struct {
 	processStatus int
 	processErr    error
+}
+
+func (client *client) Name() string {
+	return client.worker.Name()
 }
 
 func (client *client) RunCheckStep(
@@ -323,8 +332,6 @@ func (client *client) RunGetStep(
 	ctx context.Context,
 	owner db.ContainerOwner,
 	containerSpec ContainerSpec,
-	workerSpec WorkerSpec,
-	strategy ContainerPlacementStrategy,
 	containerMetadata db.ContainerMetadata,
 	processSpec runtime.ProcessSpec,
 	eventDelegate runtime.StartingEventDelegate,
@@ -333,35 +340,21 @@ func (client *client) RunGetStep(
 ) (GetResult, error) {
 	logger := lagerctx.FromContext(ctx)
 
-	chosenWorker, err := client.pool.FindOrChooseWorkerForContainer(
-		ctx,
-		logger,
-		owner,
-		containerSpec,
-		workerSpec,
-		strategy,
-	)
-	if err != nil {
-		return GetResult{}, err
-	}
-
-	eventDelegate.SelectedWorker(logger, chosenWorker.Name())
-
 	sign, err := resource.Signature()
 	if err != nil {
 		return GetResult{}, err
 	}
 
-	lockName := lockName(sign, chosenWorker.Name())
+	lockName := lockName(sign, client.worker.Name())
 
 	// TODO: this needs to be emitted right before executing the `in` script
 	eventDelegate.Starting(logger)
 
-	getResult, _, err := chosenWorker.Fetch(
+	getResult, _, err := client.worker.Fetch(
 		ctx,
 		logger,
 		containerMetadata,
-		chosenWorker,
+		client.worker,
 		containerSpec,
 		processSpec,
 		resource,

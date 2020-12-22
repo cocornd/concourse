@@ -33,6 +33,13 @@ type Pool interface {
 	CreateVolume(lager.Logger, VolumeSpec, WorkerSpec, db.VolumeType) (Volume, error)
 
 	ContainerInWorker(lager.Logger, db.ContainerOwner, WorkerSpec) (bool, error)
+	FindOrChooseWorker(
+		context.Context,
+		db.ContainerOwner,
+		ContainerSpec,
+		WorkerSpec,
+		ContainerPlacementStrategy,
+	) (Client, error)
 	FindOrChooseWorkerForContainer(
 		context.Context,
 		lager.Logger,
