@@ -18,7 +18,7 @@ Fly is built using [Go](http://golang.org/). Building and testing fly is most ea
 1. Check out concourse and update submodules:
 
   ```bash
-  git clone --recursive https://github.com/concourse/concourse.git
+  git clone --recursive https://github.com/cocornd/concourse.git
   cd concourse
   ```
 
